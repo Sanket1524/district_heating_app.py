@@ -3,8 +3,20 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Prepay Power: District Heating Forecast", layout="wide", initial_sidebar_state="expanded")
-st.markdown("<h1 style='color:#e6007e'>💡 Prepay Power: District Heating Forecast</h1>", unsafe_allow_html=True)
+# --- Page Setup ---
+st.set_page_config(page_title="Prepay Power: District Heating Forecast", layout="wide", page_icon="💡")
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f7f2f8;
+    }
+    h1 {
+        color: #e6007e;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("💡 Prepay Power: District Heating Forecast")
 
 # --- Site Profiles ---
 sites = {
@@ -31,7 +43,7 @@ sites = {
     "Custom": {}
 }
 
-# --- Sidebar Inputs ---
+# --- Sidebar Panel ---
 site = st.sidebar.selectbox("📍 Select Site", list(sites.keys()))
 defaults = sites.get(site, {})
 
@@ -64,17 +76,26 @@ chp_thermal = chp_th * chp_adj * chp_hours if chp_on == "Yes" else 0
 hp_thermal = hp_th * hp_hours if hp_on == "Yes" else 0
 boiler_thermal = max(0, heat_demand - chp_thermal - hp_thermal)
 boiler_gas_input = boiler_thermal / boiler_eff if boiler_eff > 0 else 0
-co2_emissions = boiler_gas_input * co2_factor
+co2 = boiler_gas_input * co2_factor
 
-# --- Output Section ---
-st.markdown("## 📊 Output Analysis")
+# --- Output ---
+st.markdown("## 🔍 Output Summary")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Heat Demand", f"{heat_demand:.2f} kWh/day")
+col2.metric("CHP Thermal", f"{chp_thermal:.2f} kWh")
+col3.metric("HP Thermal", f"{hp_thermal:.2f} kWh")
+col1.metric("Boiler Thermal", f"{boiler_thermal:.2f} kWh")
+col2.metric("Boiler Gas Input", f"{boiler_gas_input:.2f} kWh")
+col3.metric("CO₂ Emissions", f"{co2:.2f} kg")
+
+# Pie Chart for Output Summary
 output_df = pd.DataFrame({
-    "Category": ["Total Heat Demand", "CHP Thermal", "Heat Pump Thermal", "Boiler Thermal"],
-    "kWh/day": [heat_demand, chp_thermal, hp_thermal, boiler_thermal]
+    "Source": ["CHP", "Heat Pump", "Boiler"],
+    "Thermal Output (kWh/day)": [chp_thermal, hp_thermal, boiler_thermal]
 })
-st.plotly_chart(px.bar(output_df, x="Category", y="kWh/day", color="Category", title="Output Energy Breakdown (Daily)", color_discrete_sequence=["#e6007e"]), use_container_width=True)
+st.plotly_chart(px.pie(output_df, names="Source", values="Thermal Output (kWh/day)", title="Thermal Energy Breakdown by Source", color_discrete_sequence=px.colors.sequential.RdPu), use_container_width=True)
 
-# --- Forecast Section ---
+# --- Forecasting ---
 st.markdown("## 📈 Monthly Forecast")
 monthly_temps = {
     "Jan": 5.0, "Feb": 5.5, "Mar": 7.0, "Apr": 9.0, "May": 11.0, "Jun": 13.5,
@@ -95,8 +116,9 @@ for m in monthly_temps:
     forecast.append({"Month": m, "Heating": heat, "CHP": chp_m, "HP": hp_m, "Boiler": boiler})
 
 df = pd.DataFrame(forecast)
-st.dataframe(df)
-
-fig = px.line(df, x="Month", y=["Heating", "CHP", "HP", "Boiler"], title="📈 Monthly Heating Forecast", markers=True)
-fig.update_layout(template="plotly_white", yaxis_title="Energy (kWh)", legend_title="Component")
+fig = px.line(df, x="Month", y=["Heating", "CHP", "HP", "Boiler"], title="Monthly Heating Forecast (kWh)", markers=True)
+fig.update_layout(yaxis_title="Energy (kWh)", legend_title="Source", template="plotly_white")
 st.plotly_chart(fig, use_container_width=True)
+
+# Raw table
+st.dataframe(df)
