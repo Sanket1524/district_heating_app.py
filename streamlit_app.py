@@ -1,151 +1,102 @@
+
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import plotly.express as px
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+st.set_page_config(page_title="Prepay Power: District Heating Forecast", layout="wide", initial_sidebar_state="expanded")
+st.markdown("<h1 style='color:#e6007e'>💡 Prepay Power: District Heating Forecast</h1>", unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# --- Site Profiles ---
+sites = {
+    "Barnwell": {
+        "area": 22102,
+        "u_value": 0.15,
+        "indoor_temp": 20,
+        "outdoor_temp": 5,
+        "system_loss": 0.50,
+        "boiler_eff": 0.85,
+        "co2_factor": 0.23,
+        "elec_price": 0.25,
+        "chp_installed": "Yes",
+        "chp_th": 44.7,
+        "chp_el": 19.965,
+        "chp_gas": 67.9,
+        "chp_hours": 15,
+        "chp_adj": 0.95,
+        "hp_installed": "Yes",
+        "hp_th": 60,
+        "hp_hours": 9,
+        "hp_cop": 4
+    },
+    "Custom": {}
+}
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+# --- Sidebar Inputs ---
+site = st.sidebar.selectbox("📍 Select Site", list(sites.keys()))
+defaults = sites.get(site, {})
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+st.sidebar.header("🔧 Input Parameters")
+area = st.sidebar.number_input("Area (m²)", value=defaults.get("area", 0))
+indoor_temp = st.sidebar.number_input("Indoor Temp (°C)", value=defaults.get("indoor_temp", 20))
+outdoor_temp = st.sidebar.number_input("Outdoor Temp (°C)", value=defaults.get("outdoor_temp", 5))
+u_value = st.sidebar.number_input("U-Value (W/m²K)", value=defaults.get("u_value", 0.15))
+system_loss = st.sidebar.slider("System Loss (%)", 0, 100, int(defaults.get("system_loss", 0.5) * 100)) / 100
+boiler_eff = st.sidebar.slider("Boiler Efficiency (%)", 1, 100, int(defaults.get("boiler_eff", 85))) / 100
+co2_factor = st.sidebar.number_input("CO₂ Emission Factor (kg/kWh)", value=defaults.get("co2_factor", 0.23))
+elec_price = st.sidebar.number_input("Electricity Price (€/kWh)", value=defaults.get("elec_price", 0.25))
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+st.sidebar.header("⚙️ System Configuration")
+chp_on = st.sidebar.radio("CHP Installed?", ["Yes", "No"], index=0 if defaults.get("chp_installed") == "Yes" else 1)
+chp_th = st.sidebar.number_input("CHP Thermal Output (kW)", value=defaults.get("chp_th", 0), disabled=chp_on == "No")
+chp_el = st.sidebar.number_input("CHP Elec Output (kW)", value=defaults.get("chp_el", 0), disabled=chp_on == "No")
+chp_gas = st.sidebar.number_input("CHP Gas Input (kW)", value=defaults.get("chp_gas", 0), disabled=chp_on == "No")
+chp_hours = st.sidebar.slider("CHP Hours/Day", 0, 24, value=defaults.get("chp_hours", 0), disabled=chp_on == "No")
+chp_adj = st.sidebar.slider("CHP Adjustment (%)", 0, 100, int(defaults.get("chp_adj", 0.95) * 100), disabled=chp_on == "No") / 100
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+hp_on = st.sidebar.radio("Heat Pump Installed?", ["Yes", "No"], index=0 if defaults.get("hp_installed") == "Yes" else 1)
+hp_th = st.sidebar.number_input("HP Thermal Output (kW)", value=defaults.get("hp_th", 0), disabled=hp_on == "No")
+hp_hours = st.sidebar.slider("HP Hours/Day", 0, 24, value=defaults.get("hp_hours", 0), disabled=hp_on == "No")
+hp_cop = st.sidebar.number_input("HP COP", value=defaults.get("hp_cop", 0), disabled=hp_on == "No")
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+# --- Calculations ---
+heat_demand = (u_value * area * (indoor_temp - outdoor_temp) * 24 / 1000) * (1 + system_loss)
+chp_thermal = chp_th * chp_adj * chp_hours if chp_on == "Yes" else 0
+hp_thermal = hp_th * hp_hours if hp_on == "Yes" else 0
+boiler_thermal = max(0, heat_demand - chp_thermal - hp_thermal)
+boiler_gas_input = boiler_thermal / boiler_eff if boiler_eff > 0 else 0
+co2_emissions = boiler_gas_input * co2_factor
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+# --- Output Section ---
+st.markdown("## 📊 Output Analysis")
+output_df = pd.DataFrame({
+    "Category": ["Total Heat Demand", "CHP Thermal", "Heat Pump Thermal", "Boiler Thermal"],
+    "kWh/day": [heat_demand, chp_thermal, hp_thermal, boiler_thermal]
+})
+st.plotly_chart(px.bar(output_df, x="Category", y="kWh/day", color="Category", title="Output Energy Breakdown (Daily)", color_discrete_sequence=["#e6007e"]), use_container_width=True)
 
-    return gdp_df
+# --- Forecast Section ---
+st.markdown("## 📈 Monthly Forecast")
+monthly_temps = {
+    "Jan": 5.0, "Feb": 5.5, "Mar": 7.0, "Apr": 9.0, "May": 11.0, "Jun": 13.5,
+    "Jul": 15.0, "Aug": 15.0, "Sep": 13.0, "Oct": 10.0, "Nov": 7.0, "Dec": 5.5
+}
+days_in_month = {
+    "Jan": 31, "Feb": 28, "Mar": 31, "Apr": 30, "May": 31, "Jun": 30,
+    "Jul": 31, "Aug": 31, "Sep": 30, "Oct": 31, "Nov": 30, "Dec": 31
+}
+forecast = []
+for m in monthly_temps:
+    temp = monthly_temps[m]
+    days = days_in_month[m]
+    heat = (u_value * area * (indoor_temp - temp) * 24 / 1000) * (1 + system_loss) * days
+    chp_m = chp_th * chp_adj * chp_hours * days if chp_on == "Yes" else 0
+    hp_m = hp_th * hp_hours * days if hp_on == "Yes" else 0
+    boiler = max(0, heat - chp_m - hp_m)
+    forecast.append({"Month": m, "Heating": heat, "CHP": chp_m, "HP": hp_m, "Boiler": boiler})
 
-gdp_df = get_gdp_data()
+df = pd.DataFrame(forecast)
+st.dataframe(df)
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+fig = px.line(df, x="Month", y=["Heating", "CHP", "HP", "Boiler"], title="📈 Monthly Heating Forecast", markers=True)
+fig.update_layout(template="plotly_white", yaxis_title="Energy (kWh)", legend_title="Component")
+st.plotly_chart(fig, use_container_width=True)
