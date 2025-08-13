@@ -1,32 +1,16 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# ---------------------- Page Setup ----------------------
+# --- Page Setup ---
 st.set_page_config(page_title="Prepay Power: District Heating Forecast", layout="wide")
-
 st.markdown(
-    """
-    <style>
-    body {
-        background-color: #f9f9f9;
-    }
-    .main {
-        background-color: #ffffff;
-        border-radius: 10px;
-        padding: 1.5rem;
-    }
-    h1, h2 {
-        color: #e6007e;
-    }
-    </style>
-    """,
+    "<h1 style='color:#e6007e'>💡 Prepay Power: District Heating Forecast</h1>",
     unsafe_allow_html=True
 )
 
-st.markdown("<h1 style='color:#e6007e'>💡 Prepay Power: District Heating Forecast</h1>", unsafe_allow_html=True)
-
-# ---------------------- Site Profiles ----------------------
+# --- Site Profiles ---
 sites = {
     "Barnwell": {
         "area": 22102,
@@ -51,7 +35,7 @@ sites = {
     "Custom": {}
 }
 
-# ---------------------- Sidebar Inputs ----------------------
+# --- Sidebar Inputs ---
 st.sidebar.header("📍 Select Site & Inputs")
 site = st.sidebar.selectbox("Select Site", list(sites.keys()))
 defaults = sites.get(site, {})
@@ -67,7 +51,6 @@ elec_price = st.sidebar.number_input("Electricity Price (€/kWh)", value=defaul
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ System Configuration")
-
 chp_on = st.sidebar.radio("CHP Installed?", ["Yes", "No"], index=0 if defaults.get("chp_installed") == "Yes" else 1)
 chp_th = st.sidebar.number_input("CHP Thermal Output (kW)", value=defaults.get("chp_th", 0), disabled=chp_on == "No")
 chp_el = st.sidebar.number_input("CHP Elec Output (kW)", value=defaults.get("chp_el", 0), disabled=chp_on == "No")
@@ -80,7 +63,7 @@ hp_th = st.sidebar.number_input("HP Thermal Output (kW)", value=defaults.get("hp
 hp_hours = st.sidebar.slider("HP Hours/Day", 0, 24, value=defaults.get("hp_hours", 0), disabled=hp_on == "No")
 hp_cop = st.sidebar.number_input("HP COP", value=defaults.get("hp_cop", 0), disabled=hp_on == "No")
 
-# ---------------------- Core Calculations ----------------------
+# --- Core Calculations ---
 heat_demand = (u_value * area * (indoor_temp - outdoor_temp) * 24 / 1000) * (1 + system_loss)
 chp_thermal = chp_th * chp_adj * chp_hours if chp_on == "Yes" else 0
 chp_gas_input = chp_gas * chp_adj * chp_hours if chp_on == "Yes" else 0
@@ -92,9 +75,8 @@ boiler_thermal = max(0, heat_demand - chp_thermal - hp_thermal)
 boiler_gas_input = boiler_thermal / boiler_eff if boiler_eff > 0 else 0
 total_co2 = (boiler_gas_input + chp_gas_input) * co2_factor
 
-# ---------------------- Output Section ----------------------
+# --- Output Section ---
 st.header("🔍 Output Analysis")
-
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Heat Demand", f"{heat_demand:.2f} kWh/day")
 col2.metric("Boiler Thermal", f"{boiler_thermal:.2f} kWh")
@@ -109,9 +91,8 @@ output_df = pd.DataFrame({
 fig_pie = px.pie(output_df, values="Energy (kWh/day)", names="Source", title="Daily Thermal Contribution by Source")
 st.plotly_chart(fig_pie, use_container_width=True)
 
-# ---------------------- Forecasting Section ----------------------
+# --- Forecasting ---
 st.header("📅 Monthly Forecast (Line Chart)")
-
 monthly_temps = {
     "Jan": 5.0, "Feb": 5.5, "Mar": 7.0, "Apr": 9.0, "May": 11.0, "Jun": 13.5,
     "Jul": 15.0, "Aug": 15.0, "Sep": 13.0, "Oct": 10.0, "Nov": 7.0, "Dec": 5.5
@@ -120,7 +101,6 @@ days_in_month = {
     "Jan": 31, "Feb": 28, "Mar": 31, "Apr": 30, "May": 31, "Jun": 30,
     "Jul": 31, "Aug": 31, "Sep": 30, "Oct": 31, "Nov": 30, "Dec": 31
 }
-
 forecast = []
 for month, temp in monthly_temps.items():
     days = days_in_month[month]
@@ -137,15 +117,9 @@ for month, temp in monthly_temps.items():
     })
 
 df = pd.DataFrame(forecast)
-
-# Line chart for monthly forecast
 fig_forecast = px.line(df, x="Month", y=["Heating", "CHP", "HP", "Boiler"], markers=True, title="Monthly Heating Forecast (kWh)")
 fig_forecast.update_layout(yaxis_title="Energy (kWh)", legend_title="Component", template="plotly_white")
 st.plotly_chart(fig_forecast, use_container_width=True)
 
-# Show table without formatting error
 st.subheader("📋 Forecast Table")
 st.dataframe(df)
-
-# Optional Download
-st.download_button("📥 Download Forecast CSV", df.to_csv(index=False), file_name="monthly_forecast.csv")
