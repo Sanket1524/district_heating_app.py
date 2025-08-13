@@ -1,24 +1,32 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# --- Page Setup ---
-st.set_page_config(page_title="Prepay Power: District Heating Forecast", layout="wide", page_icon="💡")
-st.markdown("""
+# ---------------------- Page Setup ----------------------
+st.set_page_config(page_title="Prepay Power: District Heating Forecast", layout="wide")
+
+st.markdown(
+    """
     <style>
-    .main {
-        background-color: #f7f2f8;
+    body {
+        background-color: #f9f9f9;
     }
-    h1 {
+    .main {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 1.5rem;
+    }
+    h1, h2 {
         color: #e6007e;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
-st.title("💡 Prepay Power: District Heating Forecast")
+st.markdown("<h1 style='color:#e6007e'>💡 Prepay Power: District Heating Forecast</h1>", unsafe_allow_html=True)
 
-# --- Site Profiles ---
+# ---------------------- Site Profiles ----------------------
 sites = {
     "Barnwell": {
         "area": 22102,
@@ -43,11 +51,11 @@ sites = {
     "Custom": {}
 }
 
-# --- Sidebar Panel ---
-site = st.sidebar.selectbox("📍 Select Site", list(sites.keys()))
+# ---------------------- Sidebar Inputs ----------------------
+st.sidebar.header("📍 Select Site & Inputs")
+site = st.sidebar.selectbox("Select Site", list(sites.keys()))
 defaults = sites.get(site, {})
 
-st.sidebar.header("🔧 Input Parameters")
 area = st.sidebar.number_input("Area (m²)", value=defaults.get("area", 0))
 indoor_temp = st.sidebar.number_input("Indoor Temp (°C)", value=defaults.get("indoor_temp", 20))
 outdoor_temp = st.sidebar.number_input("Outdoor Temp (°C)", value=defaults.get("outdoor_temp", 5))
@@ -57,7 +65,9 @@ boiler_eff = st.sidebar.slider("Boiler Efficiency (%)", 1, 100, int(defaults.get
 co2_factor = st.sidebar.number_input("CO₂ Emission Factor (kg/kWh)", value=defaults.get("co2_factor", 0.23))
 elec_price = st.sidebar.number_input("Electricity Price (€/kWh)", value=defaults.get("elec_price", 0.25))
 
-st.sidebar.header("⚙️ System Configuration")
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ System Configuration")
+
 chp_on = st.sidebar.radio("CHP Installed?", ["Yes", "No"], index=0 if defaults.get("chp_installed") == "Yes" else 1)
 chp_th = st.sidebar.number_input("CHP Thermal Output (kW)", value=defaults.get("chp_th", 0), disabled=chp_on == "No")
 chp_el = st.sidebar.number_input("CHP Elec Output (kW)", value=defaults.get("chp_el", 0), disabled=chp_on == "No")
@@ -70,33 +80,38 @@ hp_th = st.sidebar.number_input("HP Thermal Output (kW)", value=defaults.get("hp
 hp_hours = st.sidebar.slider("HP Hours/Day", 0, 24, value=defaults.get("hp_hours", 0), disabled=hp_on == "No")
 hp_cop = st.sidebar.number_input("HP COP", value=defaults.get("hp_cop", 0), disabled=hp_on == "No")
 
-# --- Calculations ---
+# ---------------------- Core Calculations ----------------------
 heat_demand = (u_value * area * (indoor_temp - outdoor_temp) * 24 / 1000) * (1 + system_loss)
 chp_thermal = chp_th * chp_adj * chp_hours if chp_on == "Yes" else 0
+chp_gas_input = chp_gas * chp_adj * chp_hours if chp_on == "Yes" else 0
+
 hp_thermal = hp_th * hp_hours if hp_on == "Yes" else 0
+hp_electric = hp_thermal / hp_cop if hp_on == "Yes" and hp_cop > 0 else 0
+
 boiler_thermal = max(0, heat_demand - chp_thermal - hp_thermal)
 boiler_gas_input = boiler_thermal / boiler_eff if boiler_eff > 0 else 0
-co2 = boiler_gas_input * co2_factor
+total_co2 = (boiler_gas_input + chp_gas_input) * co2_factor
 
-# --- Output ---
-st.markdown("## 🔍 Output Summary")
+# ---------------------- Output Section ----------------------
+st.header("🔍 Output Analysis")
+
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Heat Demand", f"{heat_demand:.2f} kWh/day")
-col2.metric("CHP Thermal", f"{chp_thermal:.2f} kWh")
-col3.metric("HP Thermal", f"{hp_thermal:.2f} kWh")
-col1.metric("Boiler Thermal", f"{boiler_thermal:.2f} kWh")
-col2.metric("Boiler Gas Input", f"{boiler_gas_input:.2f} kWh")
-col3.metric("CO₂ Emissions", f"{co2:.2f} kg")
+col2.metric("Boiler Thermal", f"{boiler_thermal:.2f} kWh")
+col3.metric("CO₂ Emissions", f"{total_co2:.2f} kg/day")
 
-# Pie Chart for Output Summary
+# 📊 Pie chart for output contribution
+st.subheader("📊 Output Breakdown by Source")
 output_df = pd.DataFrame({
     "Source": ["CHP", "Heat Pump", "Boiler"],
-    "Thermal Output (kWh/day)": [chp_thermal, hp_thermal, boiler_thermal]
+    "Energy (kWh/day)": [chp_thermal, hp_thermal, boiler_thermal]
 })
-st.plotly_chart(px.pie(output_df, names="Source", values="Thermal Output (kWh/day)", title="Thermal Energy Breakdown by Source", color_discrete_sequence=px.colors.sequential.RdPu), use_container_width=True)
+fig_pie = px.pie(output_df, values="Energy (kWh/day)", names="Source", title="Daily Thermal Contribution by Source")
+st.plotly_chart(fig_pie, use_container_width=True)
 
-# --- Forecasting ---
-st.markdown("## 📈 Monthly Forecast")
+# ---------------------- Forecasting Section ----------------------
+st.header("📅 Monthly Forecast (Line Chart)")
+
 monthly_temps = {
     "Jan": 5.0, "Feb": 5.5, "Mar": 7.0, "Apr": 9.0, "May": 11.0, "Jun": 13.5,
     "Jul": 15.0, "Aug": 15.0, "Sep": 13.0, "Oct": 10.0, "Nov": 7.0, "Dec": 5.5
@@ -105,20 +120,32 @@ days_in_month = {
     "Jan": 31, "Feb": 28, "Mar": 31, "Apr": 30, "May": 31, "Jun": 30,
     "Jul": 31, "Aug": 31, "Sep": 30, "Oct": 31, "Nov": 30, "Dec": 31
 }
+
 forecast = []
-for m in monthly_temps:
-    temp = monthly_temps[m]
-    days = days_in_month[m]
+for month, temp in monthly_temps.items():
+    days = days_in_month[month]
     heat = (u_value * area * (indoor_temp - temp) * 24 / 1000) * (1 + system_loss) * days
-    chp_m = chp_th * chp_adj * chp_hours * days if chp_on == "Yes" else 0
-    hp_m = hp_th * hp_hours * days if hp_on == "Yes" else 0
-    boiler = max(0, heat - chp_m - hp_m)
-    forecast.append({"Month": m, "Heating": heat, "CHP": chp_m, "HP": hp_m, "Boiler": boiler})
+    chp_month = chp_th * chp_adj * chp_hours * days if chp_on == "Yes" else 0
+    hp_month = hp_th * hp_hours * days if hp_on == "Yes" else 0
+    boiler = max(0, heat - chp_month - hp_month)
+    forecast.append({
+        "Month": month,
+        "Heating": heat,
+        "CHP": chp_month,
+        "HP": hp_month,
+        "Boiler": boiler
+    })
 
 df = pd.DataFrame(forecast)
-fig = px.line(df, x="Month", y=["Heating", "CHP", "HP", "Boiler"], title="Monthly Heating Forecast (kWh)", markers=True)
-fig.update_layout(yaxis_title="Energy (kWh)", legend_title="Source", template="plotly_white")
-st.plotly_chart(fig, use_container_width=True)
 
-# Raw table
+# Line chart for monthly forecast
+fig_forecast = px.line(df, x="Month", y=["Heating", "CHP", "HP", "Boiler"], markers=True, title="Monthly Heating Forecast (kWh)")
+fig_forecast.update_layout(yaxis_title="Energy (kWh)", legend_title="Component", template="plotly_white")
+st.plotly_chart(fig_forecast, use_container_width=True)
+
+# Show table without formatting error
+st.subheader("📋 Forecast Table")
 st.dataframe(df)
+
+# Optional Download
+st.download_button("📥 Download Forecast CSV", df.to_csv(index=False), file_name="monthly_forecast.csv")
